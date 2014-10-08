@@ -1,0 +1,154 @@
+# Packages Required
+#AWS.tools
+#foreach
+#doSNOW
+library(AWS.tools)
+library(doSNOW)
+library(foreach)
+
+
+# need to re-run these functions from AWS.tools so that they are added to the namespace 
+sleep.while.pending <- function(reservation.id,sleep.time=2,verbose=TRUE) {
+    while(pending.instance(reservation.id)) {
+        if(verbose) { cat(".") }
+        Sys.sleep(sleep.time)
+    }
+    if(verbose) { cat("\n") }
+}
+
+instances.from.reservation <- function(reservation.id,verbose=FALSE) {
+    ec2din(filters=paste("reservation-id",reservation.id,sep="="),verbose=verbose)[[reservation.id]]
+}
+
+pending.instance <- function(reservation.id) {
+    instances <- instances.from.reservation(reservation.id)
+
+    ## test both state and public dns status
+    if(any(is.na(instances[,"instanceState"]) | is.na(instances[,"dnsName"]))) {
+        ans <- TRUE
+    } else {
+        ans <- any(instances[,"instanceState"]=="pending")
+    }
+    ans
+}
+
+# I edited the startCluster function so that it has a "security groups" option.
+startCluster <- function (ami, key, instance.count, instance.type,security.groups, verbose = FALSE) 
+{
+    cmd <- paste("ec2-run-instances", ami, "--show-empty-fields", 
+        "--key", key, "--instance-count", instance.count, "--instance-type", 
+        instance.type, "--group",security.groups)
+    if (verbose) {
+        cat("using this cmd:\n")
+        print(cmd)
+    }
+    res <- system(cmd, intern = TRUE)
+    reservation <- strsplit(res[[1]], split = "\t")[[1]][-1]
+    sleep.while.pending(reservation[1], verbose)
+    instances <- instances.from.reservation(reservation[1])
+    ans <- list(reservation = reservation, instances = instances)
+    class(ans) <- "ec2.cluster"
+    ans
+}
+
+cl <- startCluster(ami="ami-e427fc8c",key="TestKey",instance.count=19,instance.type="t2.micro",security.groups="sg-27702742",verbose=TRUE)
+
+
+machines <- cl$instances$dnsName
+setDefaultClusterOptions(port=10187)
+clust <- makeCluster(machines,type="SOCK")
+registerDoSNOW(clust)
+
+source("Parallel Support Functions.R")
+
+clusterEvalQ(clust,library(BigVAR))
+p=12;k=60
+
+load("OONew.Rda")
+YY=list()
+set.seed(1988)
+for(i in 1:100)
+    {
+YY[[i]] <-  MultVarSim(k,A1=Fp,p,.01*diag(k),100)
+
+        }
+
+system.time(
+MSE <- foreach(i=1:100) %dopar%{
+# YYY <- MultVarSim(k,A1=Fp,p,diag(k),100)
+A <- constructModel(YY[[i]],p,"None",c(15,10),MN=FALSE,RVAR=FALSE,1,cv="Rolling",verbose=FALSE)
+resH <- cv.BigVAR(A)
+}
+)  
+
+MSFEH <- returnMeanMSFE(MSE)
+SDH <- returnSDAgg(MSE)
+MSFEAIC <- returnMeanAIC(MSE)
+AICSD <- returnAICSDMean(MSE)
+MSFERW <- returnMeanRW(MSE)
+SDRW <- returnRWSDMean(MSE)
+MSFEMEAN <- returnMeanMean(MSE)
+MSFESD <- returnUncondSDMean(MSE)
+print(MSFEH)
+print(SDH)
+print(MSFEAIC)
+print(AICSD)
+print(MSFERW)
+print(SDRW)
+print(MSFEMEAN)
+print(MSFESD)
+
+
+#system.time(
+#MSE <- foreach(i=1:100) %dopar%{
+### YYY <- MultVarSim(k,A1=AX,p,diag(k),100)
+#A <- constructModel(YY[[i]],p,"HVAR",c#(40,10),MN=FALSE,RVAR=FALSE,1,cv="Rolling")
+#resH <- cv.BigVAR(A)
+#}
+#)    
+#MSFEH <- returnMeanMSFE(MSE)
+#SDH <- returnSDAgg(MSE)
+#print(MSFEH)
+#print(SDH)
+
+system.time(
+MSE <- foreach(i=1:100) %dopar%{
+# YYY <- MultVarSim(k,A1=Fp,p,diag(k),100)
+A <- constructModel(YY[[i]],p,"HVAR",c(15,10),MN=FALSE,RVAR=FALSE,1,cv="Rolling",verbose=FALSE)
+resH <- cv.BigVAR(A)
+}
+)  
+MSFEH <- returnMeanMSFE(MSE)
+SDH <- returnSDAgg(MSE)
+print(MSFEH)
+print(SDH)
+
+
+system.time(
+MSE <- foreach(i=1:10) %dopar%{
+## YYY <- MultVarSim(k,A1=AX,p,diag(k),100)
+A <- constructModel(YY[[i]],p,"HVARVLOO",c(15,10),MN=FALSE,RVAR=FALSE,1,cv="Rolling",verbose=FALSE)
+resH <- cv.BigVAR(A)
+}
+)    
+MSFEH <- returnMeanMSFE(MSE)
+SDH <- returnSDAgg(MSE)
+print(MSFEH)
+print(SDH)
+
+system.time(
+MSE <- foreach(i=1:10) %dopar%{
+## YYY <- MultVarSim(k,A1=AX,p,diag(k),100)
+A <- constructModel(YY[[i]],p,"HVARELEM",c(15,10),MN=FALSE,RVAR=FALSE,1,cv="Rolling",verbose=FALSE)
+resH <- cv.BigVAR(A)
+}
+)    
+MSFEH <- returnMeanMSFE(MSE)
+SDH <- returnSDAgg(MSE)
+print(MSFEH)
+print(SDH)
+
+stopCluster(clust)
+terminateCluster(cl)
+  
+

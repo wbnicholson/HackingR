@@ -27,6 +27,26 @@ lasso <- function(Z, Y, gam, maxiter=1e3, tol, B=NULL,znorm2) {
   }
 }
 
+lasso2 <- function(Z, Y, gam, maxiter=1e3, tol, B=NULL,znorm2) {
+  pk <- nrow(Z)
+  T <- ncol(Z)
+  k <- nrow(Y)
+  if (is.null(B)) B <- matrix(0, nrow=k, ncol=pk)
+  for (i in seq(maxiter)) {
+    BOLD <- B
+    for (l in seq(nrow(B))) {
+      for (m in seq(ncol(B))) {
+        r <- Y[l,] - B[l,-m]%*%Z[-m,] 
+        B[l, m] <- ST1(sum(r*Z[m,]), gam) / znorm2[m]
+      }
+    }
+    if (max(abs(B-BOLD)/(1+BOLD)) < tol) { 
+      return(B)
+    }
+  }
+}
+
+
 # Algorithm used for a grid of lambda values with scaling
 lassoVAR <- function (B, Z, Y, gamm, eps) 
 {
@@ -49,6 +69,29 @@ lassoVAR <- function (B, Z, Y, gamm, eps)
         beta[[i]] <- cbind(nu, B)
     }
     return(list(beta = beta, gamma = gamm))
+}
+
+lassoVAR2 <- function (B, Z, Y, gamm, eps) 
+{
+  beta = list()
+  Y <- t(Y)
+  YOLD <- Y
+  ZOLD <- Z
+  Y <- Y - c(apply(Y, 1, mean)) %*% t(c(rep(1, ncol(Y))))
+  Z <- Z - c(apply(Z, 1, mean)) %*% t(c(rep(1, ncol(Z))))
+  znorm2 <- rowSums(Z^2)
+  for (i in 1:length(gamm)) {
+    B[[i]] <- matrix(B[[i]][, 2:ncol(B[[i]])],nrow=k,ncol=k*p)
+  }
+  BOLD=B[[1]]
+  for (i in 1:length(gamm)) {
+    gam <- gamm[i]
+    B <- lasso2(Z, Y, gam,1e3,eps,B=BOLD,znorm2)
+    nu <- c(apply(YOLD, 1, mean)) - B %*% apply(ZOLD, 1, 
+                                                mean)
+    beta[[i]] <- cbind(nu, B)
+  }
+  return(list(beta = beta, gamma = gamm))
 }
 
 # Lasso "kernel" which uses vectorized operations:
